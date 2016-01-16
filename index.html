@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Coop Food Prices</title>
+
+  <script type="text/javascript" src="https://code.jquery.com/jquery-2.2.0.js"></script>
+  <script src="https://code.highcharts.com/highcharts.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.0.0/lodash.min.js"></script>
+</head>
+<body>
+<h1>Food prices</h1>
+
+<select id="products"></select>
+<div id="chart"></div>
+
+
+<script type="text/javascript">
+  $(function() {
+    var $container = $('#chart');
+    var $select = $('#products');
+
+    var types = $.get('http://104.131.168.178:3389/sql?query=select distinct name, units from coop order by name asc');
+    var origins = $.get("http://104.131.168.178:3389/sql?query=select origin, date_trunc('day', date), count(*) from coop group by date_trunc('day', date), origin order by origin asc");
+
+    function chartTimePrice(data, options) {
+      console.log("Charting with", data);
+      $container.highcharts({
+        title: {
+          text: options.title
+        },
+        xAxis: {
+          type: 'datetime',
+          labels: {
+            format: '{value:%d %b}'
+          }
+        },
+        yAxis: {
+          title: {
+            text: 'Price'
+          },
+          labels: {
+            format: '${value:,.2f}'
+          }
+        },
+        legend: {
+            enabled: false
+        },
+        tooltip: {
+            headerFormat: '<b>{series.name}</b><br>',
+            pointFormat: '{point.x:%Y-%m-%d}: ${point.y:.2f}'
+        },
+        series: [{
+          type: 'spline',
+          name: options.name,
+          data: data
+        }]
+      });
+    }
+
+    function prep(data, options) {
+      var series = [];
+      console.log(data);
+      _.each(data.data.rows, function(row) {
+        var date = new Date(row.date);
+        date.setDate(date.getDate() + 1); // Add one day... timezone mess.
+        series.push([date.getTime(), row.price]);
+      });
+      chartTimePrice(series, options);
+    }
+
+    types.done(function(data) {
+      _.each(data.data.rows, function(row) {
+        $select.append('<option value="" data-name="' + row.name + '" data-units="' + row.units + '">' + row.name + '</option>');
+      });
+
+      $select.on('change', function(e) {
+        var $target = $(e.target).find('option:selected');
+        var name = $target.attr('data-name');
+        var units = $target.attr('data-units');
+
+        console.log("Searching for", $target, name, units);
+        var history = $.get("http://104.131.168.178:3389/sql?query=select * from coop where name='" + name + "' and units='" + units + "' order by date asc");
+        history.done(function(data) {
+          prep(data, {
+            title: name + ' ' + units,
+            name: name,
+            units: units
+          });
+        });
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
