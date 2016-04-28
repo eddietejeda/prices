@@ -10,8 +10,31 @@
 <body>
 <h1>Food prices</h1>
 
+<h2>Kale Index</h2>
+
+
+
 <select id="products"></select>
 <div id="chart"></div>
+
+<h2>Getting cheaper</h2>
+<div id="cheaper"></div>
+
+<h2>Getting pricier</h2>
+<div id="pricier"></div>
+
+<script type="text/template" id="changes">
+  <div class="change">
+    <% _.each(rows, function(row){ %>
+      <div>
+      <%= row.name %>
+      <%= row.units %>
+      <%= row.new_price %> (<%= row.price_diff %> from <%= row.old_price%>, <%= row.pcg_change.toFixed(0) %>%)
+      </div>
+    <% }); %>
+  </div>
+</script>
+
 
 
 <script type="text/javascript">
@@ -19,8 +42,23 @@
     var $container = $('#chart');
     var $select = $('#products');
 
+    //https://gist.github.com/rcackerman/55b8ff81a72482b981a9
+
     var types = $.get('http://104.131.168.178:3389/sql?query=select distinct name, units from coop order by name asc');
     var origins = $.get("http://104.131.168.178:3389/sql?query=select origin, date_trunc('day', date), count(*) from coop group by date_trunc('day', date), origin order by origin asc");
+    var kales =  $.get("http://104.131.168.178:3389/sql?query=select * from coop where LOWER(name) LIKE '%25kale%25' order by date asc");
+
+    var index = $.get("http://104.131.168.178:3389/sql?query= with prices as (   select     new.name,     new.units,     old_price,     new_price,     new_price::float - old_price::float as price_diff,     (old_price %2B new_price)/2.0 as price_avg   from (     select name, units, price as old_price     from coop where date = current_date - '7 days'::interval   ) old   join (     select name, units, price as new_price     from coop where date = (select max(date) from coop)   ) new     on old.name = new.name     and old.units = new.units )  select   *,   price_diff/price_avg * 100 as pcg_change from prices order by price_diff;");
+
+    index.done(function(data) {
+      data = data.data;
+      console.log("index", data);
+
+      var template = _.template($('#changes').html());
+      $('#cheaper').html(template({ rows: data.rows.slice(0, 10) }));
+      $('#pricier').html(template({ rows: _.reverse(data.rows).slice(0, 10) }));
+
+    });
 
     function chartTimePrice(data, options) {
       console.log("Charting with", data);
@@ -40,7 +78,9 @@
           },
           labels: {
             format: '${value:,.2f}'
-          }
+          },
+          min: 0,
+          max: 7
         },
         legend: {
             enabled: false
