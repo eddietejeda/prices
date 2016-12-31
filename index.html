@@ -6,43 +6,131 @@
   <script type="text/javascript" src="https://code.jquery.com/jquery-2.2.0.js"></script>
   <script src="https://code.highcharts.com/highcharts.js"></script>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.0.0/lodash.min.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/2.5.0/fuse.min.js"></script>
+
+
+  <style type="text/css">
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body,
+    h1, 
+    h2, 
+    h3 {
+      font-family: verdana;
+      color: #333;
+      margin: 0;
+    }
+
+    h1 {
+      background: #eee;
+      border-bottom: 1px solid #ddd;
+      font-size: 1em;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      font-size: 1em;
+      margin-bottom: 0.25em;
+    }
+
+    .content {
+      padding: 10px;
+    }
+
+    input {
+      width: calc(100% - 25px);
+      font-size: 1em;
+      padding: 10px;
+    }
+
+    .results {
+      margin: 0.5em 0;
+    }
+
+    .result {
+      display: inline-block;
+      background: #eee;
+      color: #0571b0;
+      margin: 0 3px 3px 0;
+      border-radius: 3px;
+      padding: 4px 8px;
+      text-decoration: none;
+    }
+
+    .result:hover {
+      background: #ccc;
+    }
+
+    .result.selected {
+      background: #05b04c;
+      color: #fff;
+    }
+
+    #chart {
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 1em;
+      margin-bottom: 1em;
+    }
+
+    .decrease .diff {
+      color: #0571b0;
+    }
+
+    .increase .diff {
+      color: #b0001c;
+    }
+  </style>
 </head>
 <body>
-<h1>Food prices</h1>
+<h1>Park Slope Food Coop Produce Prices</h1>
 
-<select id="products"></select>
-<div id="chart"></div>
+<div class="content">
+  <div class="search">
+    <h2>Search for produce to get a price chart</h2>
+    <input class="produce-searcher" placeholder="Search (eg 'avocado')">
+    <div class="results"></div>
+  </div>
+  <div id="chart"></div>
 
-<h2>Getting cheaper</h2>
-<div id="cheaper"></div>
+  <h2>Cheaper this week</h2>
+  <div id="cheaper"></div>
 
-<h2>Getting pricier</h2>
-<div id="pricier"></div>
+  <h2>Pricier this week</h2>
+  <div id="pricier"></div>
+</div>
 
 <script type="text/template" id="changes">
-  <div class="change">
+  <ul class="change <%= change %>">
     <% _.each(rows, function(row){ %>
-      <div>
+      <li>
       <%= row.name %>
       <%= row.units %>
-      <%= row.new_price %> (<%= row.price_diff %> from <%= row.old_price%>, <%= row.pcg_change.toFixed(0) %>%)
-      </div>
+      <%= row.new_price %> (<span class="diff">$<%= row.price_diff.toFixed(2) %></span> from $<%= row.old_price%>, <span class="diff"><%= row.pcg_change.toFixed(0) %>%</span>)
+      </li>
     <% }); %>
-  </div>
+  </ul>
 </script>
 
 
 
 <script type="text/javascript">
+  /*globals $, _, console, Fuse: true */
+  'use strict';
+
   $(function() {
     var $container = $('#chart');
     var $select = $('#products');
+    var DEFAULT_MAX = 7;
 
     //https://gist.github.com/rcackerman/55b8ff81a72482b981a9
 
     var types = $.get('http://104.131.168.178:3389/sql?query=select distinct name, units from coop order by name asc');
-    var origins = $.get("http://104.131.168.178:3389/sql?query=select origin, date_trunc('day', date), count(*) from coop group by date_trunc('day', date), origin order by origin asc");
-    var kales =  $.get("http://104.131.168.178:3389/sql?query=select * from coop where LOWER(name) LIKE '%25kale%25' order by date asc");
+    // var origins = $.get("http://104.131.168.178:3389/sql?query=select origin, date_trunc('day', date), count(*) from coop group by date_trunc('day', date), origin order by origin asc");
+    // var kales =  $.get("http://104.131.168.178:3389/sql?query=select * from coop where LOWER(name) LIKE '%25kale%25' order by date asc");
 
     var index = $.get("http://104.131.168.178:3389/sql?query= with prices as (   select     new.name,     new.units,     old_price,     new_price,     new_price::float - old_price::float as price_diff,     (old_price %2B new_price)/2.0 as price_avg   from (     select name, units, price as old_price     from coop where date = current_date - '7 days'::interval   ) old   join (     select name, units, price as new_price     from coop where date = (select max(date) from coop)   ) new     on old.name = new.name     and old.units = new.units )  select   *,   price_diff/price_avg * 100 as pcg_change from prices order by price_diff;");
 
@@ -51,8 +139,8 @@
       console.log("index", data);
 
       var template = _.template($('#changes').html());
-      $('#cheaper').html(template({ rows: data.rows.slice(0, 10) }));
-      $('#pricier').html(template({ rows: _.reverse(data.rows).slice(0, 10) }));
+      $('#cheaper').html(template({ rows: data.rows.slice(0, 10), change: 'decrease' }));
+      $('#pricier').html(template({ rows: _.reverse(data.rows).slice(0, 10), change: 'increase' }));
 
     });
 
@@ -76,7 +164,7 @@
             format: '${value:,.2f}'
           },
           min: 0,
-          max: 7
+          max: options.yMax || DEFAULT_MAX
         },
         legend: {
             enabled: false
@@ -101,21 +189,56 @@
         date.setDate(date.getDate() + 1); // Add one day... timezone mess.
         series.push([date.getTime(), row.price]);
       });
+
+      var max = _.max(_.map(data.data.rows, 'price'));
+      if (max > DEFAULT_MAX) {
+        options.yMax = Math.ceil(max);
+      }
+
       chartTimePrice(series, options);
     }
 
     types.done(function(data) {
-      _.each(data.data.rows, function(row) {
-        $select.append('<option value="" data-name="' + row.name + '" data-units="' + row.units + '">' + row.name + '</option>');
-      });
+      data = data.data.rows;
 
-      $select.on('change', function(e) {
-        var $target = $(e.target).find('option:selected');
+      var options = {
+        // include: ["score"],
+        shouldSort: true,
+        tokenize: true,
+        matchAllTokens: true,
+        threshold: 0.2,
+        location: 0,
+        distance: 10,
+        maxPatternLength: 32,
+        minMatchCharLength: 3,
+        keys: [
+          "searchName"
+        ]
+      };
+      _.each(data, function(d) {
+        // Hyphens confuse the search (eg Carrots-baby won't show up for 'baby');
+        d.searchName = d.name.replace('-', ' ');
+      });
+      var fuse = new Fuse(data, options); // "list" is the item array
+
+      function selectProduce(event) {
+        event.preventDefault();
+        var $target = $(event.target);
         var name = $target.attr('data-name');
         var units = $target.attr('data-units');
 
-        console.log("Searching for", $target, name, units);
-        var history = $.get("http://104.131.168.178:3389/sql?query=select * from coop where name='" + name + "' and units='" + units + "' order by date asc");
+        // Mark it selected
+        $('.result').removeClass('selected');
+        $target.addClass('selected');
+
+        console.log('Searching for', name, units);
+
+        var query = "select * from coop where name='" + name + "' and units='" + units + "' order by date asc";
+
+        var history = $.get('http://104.131.168.178:3389/sql', {
+          query: query
+        });
+
         history.done(function(data) {
           prep(data, {
             title: name + ' ' + units,
@@ -123,7 +246,31 @@
             units: units
           });
         });
-      });
+      }
+
+      function produceSearcher(event) {
+        var term = $(event.target).val();
+        var results = fuse.search(term);
+        console.log('Searched for', term, results);
+
+        var $results = $('.results');
+        $results.empty();
+        _.each(results, function(row) {
+          $results.append('<a href="#" class="result" data-name="' + row.name + '" data-units="' + row.units + '">' + row.name + '</a>');
+        });
+
+        $('.result').click(selectProduce);
+      }
+
+      $(".produce-searcher").on('input', produceSearcher);
+
+
+      /*
+      _.each(data.data.rows, function(row) {
+        
+      }); */
+
+      
     });
   });
 </script>
